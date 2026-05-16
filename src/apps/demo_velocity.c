@@ -41,6 +41,10 @@ static int                    g_canfd_fd = -1;
 
 static void usage(const char *argv0) {
     fprintf(stderr,
+        "demo_velocity -- hexfellow CANopen profile-velocity motor demo\n"
+        "Author: kisonhe <kisonhe@hexfellow.com>\n"
+        "License: MIT (see LICENSE)\n"
+        "\n"
         "Usage: %s [--verbose|-v] <iface> <motor_count> "
         "[target_rev_per_s=0.5] [torque_permille=200]\n",
         argv0);

@@ -334,7 +334,14 @@ state, power-cycle the motors.
 
 ---
 
+## Author
+
+Written by **kisonhe** &lt;[kisonhe@hexfellow.com](mailto:kisonhe@hexfellow.com)&gt;.
+
 ## License & disclaimer
+
+Released under the **MIT License** — see [`LICENSE`](LICENSE) for the
+full text.
 
 This code is provided **as-is**, without warranty of any kind, express
 or implied, including but not limited to the warranties of
