@@ -22,7 +22,8 @@
 
 /* Vendor / firmware checks (1018h identity object). */
 #define HEXFELLOW_FACTORY_UID       0x4859444Cu  /* factory UID reported by hexfellow firmware */
-#define HEXFELLOW_REQUIRED_VERSION  8u           /* required firmware == 8 */
+#define HEXFELLOW_MIN_VERSION      8u           /* minimum required firmware version */
+#define HEXFELLOW_MAX_VERSION      9u           /* maximum required firmware version */
 
 /* Heartbeat parameters. */
 #define HEXFELLOW_MASTER_HB_PERIOD_MS    50u

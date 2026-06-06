@@ -180,12 +180,12 @@ static void init_one_motor(hexfellow_motor_set_t *set, hexfellow_sdo_t *sdo,
             id, factory_uid, HEXFELLOW_FACTORY_UID);
     }
 
-    /* 3) Validate firmware version (must be exactly 8). */
+    /* 3) Validate firmware version (must be within [min, max]). */
     uint32_t fw = 0;
     SDO_UL(hexfellow_sdo_ul_u32(sdo, id, 0x1018, 3, &fw));
-    if (fw != HEXFELLOW_REQUIRED_VERSION) {
-        die("motor id=%u firmware version %u != required %u",
-            id, fw, HEXFELLOW_REQUIRED_VERSION);
+    if (fw < HEXFELLOW_MIN_VERSION || fw > HEXFELLOW_MAX_VERSION) {
+        die("motor id=%u firmware version %u is outside range [%u, %u]",
+            id, fw, HEXFELLOW_MIN_VERSION, HEXFELLOW_MAX_VERSION);
     }
     set->motors[index].firmware_version = fw;
 
