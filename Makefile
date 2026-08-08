@@ -31,7 +31,7 @@ LIB_SRCS := \
 
 LIB_OBJS := $(patsubst src/%.c,$(BUILD_DIR)/%.o,$(LIB_SRCS))
 
-APPS := demo_mit demo_velocity
+APPS := demo_mit demo_velocity demo_regen
 APP_BINS := $(patsubst %,$(BUILD_DIR)/%,$(APPS))
 
 .PHONY: all clean
@@ -49,6 +49,9 @@ $(BUILD_DIR)/demo_mit: $(BUILD_DIR)/apps/demo_mit.o $(LIB_OBJS)
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BUILD_DIR)/demo_velocity: $(BUILD_DIR)/apps/demo_velocity.o $(LIB_OBJS)
+	$(CC) $^ -o $@ $(LDFLAGS)
+
+$(BUILD_DIR)/demo_regen: $(BUILD_DIR)/apps/demo_regen.o $(LIB_OBJS)
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 clean:

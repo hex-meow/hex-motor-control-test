@@ -1,6 +1,6 @@
 # hexfellow CANopen Motor Control Demo
 
-Two minimal C demos that initialize and drive **hexfellow** motors over
+Minimal C demos that initialize and drive **hexfellow** motors over
 CAN-FD using the CANopen (CiA301 + CiA402) protocol with vendor
 extensions for 64-byte PDOs.
 
@@ -9,6 +9,11 @@ extensions for 64-byte PDOs.
 - `demo_velocity` — spins every motor at a constant velocity using
   **profile-velocity mode** (`6060h = 3`) with a per-frame `6072h`
   torque limit.
+- `demo_regen` — drives every motor through a synchronized full-torque
+  accelerate / cruise / brake-and-reverse cycle (MIT mode). Built for
+  bench-testing regenerative-braking absorption hardware (back-EMF
+  clamp boards): every braking ramp pushes all motors' regen energy
+  back into the DC bus at the same time.
 
 This repo is intentionally a **demo**, not a library. It contains the
 bare minimum to bring the motors from cold-boot all the way to a
@@ -193,7 +198,8 @@ with a descriptive error and exit.
 make
 ```
 
-Outputs land in `build/demo_mit` and `build/demo_velocity`.
+Outputs land in `build/demo_mit`, `build/demo_velocity` and
+`build/demo_regen`.
 
 ### Cross compile
 
@@ -210,7 +216,7 @@ env CC=$BR/output/host/bin/aarch64-linux-gcc \
     CFLAGS_EXTRA='-mcpu=cortex-a53' \
     make
 
-scp build/demo_mit build/demo_velocity root@<board_ip>:
+scp build/demo_mit build/demo_velocity build/demo_regen root@<board_ip>:
 ```
 
 Alternatively, with a Debian-style cross compiler:
@@ -240,6 +246,7 @@ the command line.
 ```text
 demo_mit       [--verbose|-v] <iface> <motor_count> [target_rev_per_s=0.5] [kd=2.0] [torque_permille=800]
 demo_velocity  [--verbose|-v] <iface> <motor_count> [target_rev_per_s=0.5] [torque_permille=200]
+demo_regen     [--verbose|-v] <iface> <motor_count> [peak_rev_s=1.0] [accel_rev_s2=2.0] [decel_rev_s2=accel] [cruise_s=1.0] [torque_permille=800] [kd=2.0]
 ```
 
 Examples — assuming 4 motors with CANopen IDs `0x01..0x04` on `can0`:
@@ -253,7 +260,34 @@ Examples — assuming 4 motors with CANopen IDs `0x01..0x04` on `can0`:
 
 # Same but with verbose printf-debug logging on stderr
 ./build/demo_mit --verbose can0 4 0.5
+
+# Regen cycle: +/-1 rev/s trapezoid, gentle defaults
+./build/demo_regen can0 4
+
+# Regen stress test: 3 rev/s, spin up at 3 rev/s^2 but brake at
+# 50 rev/s^2 (effectively a full-torque stop), 2 s cruise segments
+./build/demo_regen can0 4 3.0 3.0 50.0 2.0 1000
 ```
+
+`demo_regen` knobs:
+
+- `peak_rev_s` — cruise speed; the cycle runs `+peak → -peak → +peak`.
+- `accel_rev_s2` — commanded slope while |velocity| grows (motoring).
+- `decel_rev_s2` — commanded slope while |velocity| shrinks (braking —
+  this is the regen part). Defaults to `accel_rev_s2`. Crank it past
+  what the motor can physically follow and the `torque_permille` limit
+  becomes the effective "braking force" knob.
+- `cruise_s` — how long to hold each ±peak plateau. `0` gives a
+  triangle wave with no constant-velocity segment.
+- `torque_permille` — written to both `6072h` and the MIT KP/KD output
+  limit (`2004h-0E`), so braking torque can genuinely reach this cap.
+- `kd` — MIT velocity-tracking gain; higher = stiffer tracking = more
+  braking torque for the same slope.
+
+Phase transitions are logged with a `>>>` prefix and a monotonic
+timestamp for lining up with oscilloscope captures, and the per-second
+telemetry includes both the commanded and the measured (position-delta)
+velocity.
 
 ### Verbose logging
 

@@ -20,7 +20,8 @@ exists to make it easy to navigate the source.
     ├── hexfellow_motor_ctrl.{h,c}
     └── apps/
         ├── demo_mit.c
-        └── demo_velocity.c
+        ├── demo_velocity.c
+        └── demo_regen.c
 ```
 
 There is **no external CANopen stack** — see the README for why. The
@@ -233,11 +234,26 @@ Same skeleton as `demo_mit.c`, but configures every motor for profile
 velocity (`6060h = 3`) and sends `[u16 6072h][f32 60FFh]` per motor in
 each RPDO instead of the MIT 8-byte packed frame.
 
+### `apps/demo_regen.c`
+
+Same init skeleton as `demo_mit.c` (MIT mode), but instead of a
+constant velocity the main thread runs a 2 ms waveform generator that
+slews the shared velocity command through a trapezoidal
+`+peak → cruise → -peak → cruise → ...` cycle. Motoring ramps use
+`accel_rev_s2`, braking ramps use `decel_rev_s2`; every motor gets the
+identical command so all regen currents hit the DC bus at once — the
+worst case for back-EMF absorption hardware, which is what this demo
+exists to stress. Unlike `demo_mit`, the MIT KP/KD output limit
+(`2004h-0E`) is set to the CLI `torque_permille` instead of the
+conservative hard-coded 770. Telemetry adds a measured velocity
+(position delta per telemetry interval) next to the commanded one, and
+phase transitions are logged with `>>>` markers for scope correlation.
+
 ## Outside src/
 
 ### `Makefile`
 
-GCC-based; no autotools, no CMake. Builds `build/demo_mit` and
-`build/demo_velocity`. Honors environment variables `CC`,
-`CFLAGS_EXTRA`, `LDFLAGS_EXTRA`, and `BUILD_DIR` for cross compilation
-(see the README for examples).
+GCC-based; no autotools, no CMake. Builds `build/demo_mit`,
+`build/demo_velocity` and `build/demo_regen`. Honors environment
+variables `CC`, `CFLAGS_EXTRA`, `LDFLAGS_EXTRA`, and `BUILD_DIR` for
+cross compilation (see the README for examples).
