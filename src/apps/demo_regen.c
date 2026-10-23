@@ -1,5 +1,5 @@
 /*
- * demo_regen -- drive every connected hexfellow motor through a
+ * demo_regen -- drive every connected hexmeow motor through a
  * synchronized full-torque accelerate / cruise / brake-and-reverse
  * cycle. Built for bench-testing regenerative-braking absorption
  * hardware (back-EMF clamp / brake-chopper boards): during every
@@ -59,32 +59,32 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "hexfellow_canfd.h"
-#include "hexfellow_common.h"
-#include "hexfellow_mit_target.h"
-#include "hexfellow_motor_ctrl.h"
-#include "hexfellow_motor_init.h"
-#include "hexfellow_sdo.h"
+#include "hexmeow_canfd.h"
+#include "hexmeow_common.h"
+#include "hexmeow_mit_target.h"
+#include "hexmeow_motor_ctrl.h"
+#include "hexmeow_motor_init.h"
+#include "hexmeow_sdo.h"
 
 #define HB_WARMUP_MS  100
 
 /* Waveform generator tick. Matches the RPDO cadence -- updating the
  * target faster than it is shipped to the bus buys nothing. */
-#define WAVE_TICK_US  (HEXFELLOW_RPDO_PERIOD_MS * 1000)
+#define WAVE_TICK_US  (HEXMEOW_RPDO_PERIOD_MS * 1000)
 
 /* Telemetry print period (seconds). */
 #define PRINT_PERIOD_S  1.0
 
-static hexfellow_ctrl_t       g_ctrl;
-static hexfellow_motor_set_t  g_set;
-static hexfellow_sdo_t        g_sdo;
+static hexmeow_ctrl_t       g_ctrl;
+static hexmeow_motor_set_t  g_set;
+static hexmeow_sdo_t        g_sdo;
 static int                    g_canfd_fd = -1;
 
 static void usage(const char *argv0) {
     fprintf(stderr,
-        "demo_regen -- hexfellow synchronized accel/brake cycle "
+        "demo_regen -- hexmeow synchronized accel/brake cycle "
         "(regen / back-EMF absorber test)\n"
-        "Author: kisonhe <kisonhe@hexfellow.com>\n"
+        "Author: kisonhe <kisonhe@hexmeow.com>\n"
         "License: MIT (see LICENSE)\n"
         "\n"
         "Usage: %s [--verbose|-v] <iface> <motor_count>\n"
@@ -101,12 +101,12 @@ static void usage(const char *argv0) {
 }
 
 /* Strip "--verbose" / "-v" from argv (any position), setting the global
- * `hexfellow_verbose` to 1 if present. Returns the new argc. */
+ * `hexmeow_verbose` to 1 if present. Returns the new argc. */
 static int strip_verbose_flag(int argc, char *argv[]) {
     int out = 0;
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
-            hexfellow_verbose = 1;
+            hexmeow_verbose = 1;
         } else {
             argv[out++] = argv[i];
         }
@@ -156,19 +156,19 @@ int main(int argc, char *argv[]) {
     }
     const char *ifname = argv[1];
     int count = atoi(argv[2]);
-    if (count <= 0 || count > HEXFELLOW_MAX_MOTORS) {
+    if (count <= 0 || count > HEXMEOW_MAX_MOTORS) {
         fprintf(stderr, "ERROR: motor_count must be 1..%d (got %d)\n",
-                HEXFELLOW_MAX_MOTORS, count);
+                HEXMEOW_MAX_MOTORS, count);
         return 2;
     }
     float peak      = (argc >= 4) ? (float)atof(argv[3]) : 1.0f;
     float accel     = (argc >= 5) ? (float)atof(argv[4]) : 2.0f;
     float decel     = (argc >= 6) ? (float)atof(argv[5]) : accel;
     float cruise_s  = (argc >= 7) ? (float)atof(argv[6]) : 1.0f;
-    int   torque_pm = (argc >= 8) ? atoi(argv[7]) : (int)HEXFELLOW_DEFAULT_TORQUE_PERMILLE;
+    int   torque_pm = (argc >= 8) ? atoi(argv[7]) : (int)HEXMEOW_DEFAULT_TORQUE_PERMILLE;
     float kd        = (argc >= 9) ? (float)atof(argv[8]) : 2.0f;
 
-    hexfellow_mit_mapping_t mapping = hexfellow_mit_mapping_default();
+    hexmeow_mit_mapping_t mapping = hexmeow_mit_mapping_default();
     if (peak <= 0.0f || peak > mapping.velocity_max) {
         fprintf(stderr, "ERROR: peak_rev_s must be 0..%.1f (got %.3f); "
                 "the MIT mapping clamps velocity beyond that\n",
@@ -203,11 +203,11 @@ int main(int argc, char *argv[]) {
             "decel=%.3f Rev/s^2 cruise=%.3f s torque=%d permille kd=%.3f\n",
             ifname, count, peak, accel, decel, cruise_s, torque_pm, kd);
 
-    g_canfd_fd = hexfellow_canfd_open(ifname);
-    hexfellow_sdo_open(&g_sdo, ifname);
+    g_canfd_fd = hexmeow_canfd_open(ifname);
+    hexmeow_sdo_open(&g_sdo, ifname);
 
     memset(&g_set, 0, sizeof(g_set));
-    g_set.mode = HEXFELLOW_MODE_KIND_MIT;
+    g_set.mode = HEXMEOW_MODE_KIND_MIT;
     g_set.count = (uint8_t)count;
     g_set.torque_permille = (uint16_t)torque_pm;
     /* Unlike demo_mit (hard-coded 770), give the MIT KP/KD path the full
@@ -216,7 +216,7 @@ int main(int argc, char *argv[]) {
     g_set.kp_kd_torque_permille = (uint16_t)torque_pm;
     g_set.mapping = mapping;
 
-    hexfellow_motor_set_init(&g_set, &g_sdo, g_canfd_fd);
+    hexmeow_motor_set_init(&g_set, &g_sdo, g_canfd_fd);
 
     for (uint8_t i = 0; i < g_set.count; i++) {
         fprintf(stderr,
@@ -229,8 +229,8 @@ int main(int argc, char *argv[]) {
 
     /* Targets default to zero -- no motion until the waveform loop below
      * starts pushing commands after the heartbeat warm-up. */
-    hexfellow_ctrl_init(&g_ctrl, &g_set, g_canfd_fd);
-    hexfellow_ctrl_start(&g_ctrl);
+    hexmeow_ctrl_init(&g_ctrl, &g_set, g_canfd_fd);
+    hexmeow_ctrl_start(&g_ctrl);
 
     fprintf(stderr,
             "[demo_regen] heartbeat warm-up (%d ms) before applying targets\n",
@@ -239,14 +239,14 @@ int main(int argc, char *argv[]) {
 
     /* Baselines for the measured-velocity estimate (position delta over
      * the telemetry interval). */
-    double prev_total[HEXFELLOW_MAX_MOTORS];
+    double prev_total[HEXMEOW_MAX_MOTORS];
     for (uint8_t i = 0; i < g_set.count; i++) {
-        hexfellow_motor_state_t s;
-        hexfellow_ctrl_snapshot(&g_ctrl, i, &s);
+        hexmeow_motor_state_t s;
+        hexmeow_ctrl_snapshot(&g_ctrl, i, &s);
         prev_total[i] = (double)s.multi_turns + (double)s.position_rev;
     }
 
-    hexfellow_mit_target_t target = {
+    hexmeow_mit_target_t target = {
         .position = 0.0f,
         .velocity = 0.0f,
         .torque   = 0.0f,
@@ -296,14 +296,14 @@ int main(int argc, char *argv[]) {
          * regen currents of all motors add up on the shared bus. */
         target.velocity = cmd;
         for (uint8_t i = 0; i < g_set.count; i++) {
-            hexfellow_ctrl_set_mit_target(&g_ctrl, i, &target);
+            hexmeow_ctrl_set_mit_target(&g_ctrl, i, &target);
         }
 
         if (t >= next_print) {
             double span = t - prev_t;
             for (uint8_t i = 0; i < g_set.count; i++) {
-                hexfellow_motor_state_t s;
-                hexfellow_ctrl_snapshot(&g_ctrl, i, &s);
+                hexmeow_motor_state_t s;
+                hexmeow_ctrl_snapshot(&g_ctrl, i, &s);
                 double total = (double)s.multi_turns + (double)s.position_rev;
                 float meas = (span > 0.0) ? (float)((total - prev_total[i]) / span)
                                           : 0.0f;

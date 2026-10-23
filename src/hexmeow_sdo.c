@@ -1,5 +1,5 @@
-#include "hexfellow_sdo.h"
-#include "hexfellow_common.h"
+#include "hexmeow_sdo.h"
+#include "hexmeow_common.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -34,19 +34,19 @@ static int set_rcvto_ms(int fd, int ms) {
     return setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
 
-void hexfellow_sdo_open(hexfellow_sdo_t *sdo, const char *ifname) {
+void hexmeow_sdo_open(hexmeow_sdo_t *sdo, const char *ifname) {
     int fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (fd < 0) {
-        fprintf(stderr, "[hexfellow_sdo] socket(PF_CAN) failed: %s\n",
+        fprintf(stderr, "[hexmeow_sdo] socket(PF_CAN) failed: %s\n",
                 strerror(errno));
         exit(EXIT_FAILURE);
     }
     /* Filter only the SDO server response COB-ID range (0x580..0x5FF). */
     struct can_filter filt;
-    filt.can_id = HEXFELLOW_COB_TSDO;
+    filt.can_id = HEXMEOW_COB_TSDO;
     filt.can_mask = 0x780;  /* match 0x580..0x5FF */
     if (setsockopt(fd, SOL_CAN_RAW, CAN_RAW_FILTER, &filt, sizeof(filt)) < 0) {
-        fprintf(stderr, "[hexfellow_sdo] setsockopt(CAN_RAW_FILTER) failed: %s\n",
+        fprintf(stderr, "[hexmeow_sdo] setsockopt(CAN_RAW_FILTER) failed: %s\n",
                 strerror(errno));
         close(fd);
         exit(EXIT_FAILURE);
@@ -55,7 +55,7 @@ void hexfellow_sdo_open(hexfellow_sdo_t *sdo, const char *ifname) {
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
     if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
-        fprintf(stderr, "[hexfellow_sdo] ioctl(SIOCGIFINDEX) for '%s' failed: %s\n",
+        fprintf(stderr, "[hexmeow_sdo] ioctl(SIOCGIFINDEX) for '%s' failed: %s\n",
                 ifname, strerror(errno));
         close(fd);
         exit(EXIT_FAILURE);
@@ -65,7 +65,7 @@ void hexfellow_sdo_open(hexfellow_sdo_t *sdo, const char *ifname) {
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        fprintf(stderr, "[hexfellow_sdo] bind '%s' failed: %s\n", ifname,
+        fprintf(stderr, "[hexmeow_sdo] bind '%s' failed: %s\n", ifname,
                 strerror(errno));
         close(fd);
         exit(EXIT_FAILURE);
@@ -73,7 +73,7 @@ void hexfellow_sdo_open(hexfellow_sdo_t *sdo, const char *ifname) {
     sdo->fd = fd;
 }
 
-void hexfellow_sdo_close(hexfellow_sdo_t *sdo) {
+void hexmeow_sdo_close(hexmeow_sdo_t *sdo) {
     if (sdo->fd >= 0) {
         close(sdo->fd);
         sdo->fd = -1;
@@ -93,7 +93,7 @@ static void drain(int fd) {
 static int send_request(int fd, uint8_t node, const uint8_t cmd[8]) {
     struct can_frame f;
     memset(&f, 0, sizeof(f));
-    f.can_id = (HEXFELLOW_COB_RSDO | node) & CAN_SFF_MASK;
+    f.can_id = (HEXMEOW_COB_RSDO | node) & CAN_SFF_MASK;
     f.can_dlc = 8;
     memcpy(f.data, cmd, 8);
     ssize_t n = write(fd, &f, sizeof(f));
@@ -109,12 +109,12 @@ static int wait_response(int fd, uint8_t node, uint16_t idx, uint8_t sub,
         ssize_t n = read(fd, &f, sizeof(f));
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                return HEXFELLOW_SDO_ERR_TIMEOUT;
+                return HEXMEOW_SDO_ERR_TIMEOUT;
             }
-            return HEXFELLOW_SDO_ERR_IO;
+            return HEXMEOW_SDO_ERR_IO;
         }
         if (n != (ssize_t)sizeof(f) || f.can_dlc < 8) continue;
-        uint16_t exp_id = (HEXFELLOW_COB_TSDO | node);
+        uint16_t exp_id = (HEXMEOW_COB_TSDO | node);
         if ((f.can_id & CAN_SFF_MASK) != exp_id) continue;
         uint16_t resp_idx = (uint16_t)f.data[1] | ((uint16_t)f.data[2] << 8);
         uint8_t resp_sub = f.data[3];
@@ -122,17 +122,17 @@ static int wait_response(int fd, uint8_t node, uint16_t idx, uint8_t sub,
          * frame to return to the caller. */
         if (resp_idx != idx || resp_sub != sub) continue;
         memcpy(out, f.data, 8);
-        return HEXFELLOW_SDO_OK;
+        return HEXMEOW_SDO_OK;
     }
 }
 
-int hexfellow_sdo_download(hexfellow_sdo_t *sdo, uint8_t node, uint16_t idx,
+int hexmeow_sdo_download(hexmeow_sdo_t *sdo, uint8_t node, uint16_t idx,
                            uint8_t sub, const void *data, uint8_t len,
                            int timeout_ms, uint32_t *abort_code) {
     if (!sdo || sdo->fd < 0 || !data || len == 0 || len > 4) {
-        return HEXFELLOW_SDO_ERR_ARG;
+        return HEXMEOW_SDO_ERR_ARG;
     }
-    if (set_rcvto_ms(sdo->fd, timeout_ms) < 0) return HEXFELLOW_SDO_ERR_IO;
+    if (set_rcvto_ms(sdo->fd, timeout_ms) < 0) return HEXMEOW_SDO_ERR_IO;
     drain(sdo->fd);
     uint8_t cmd[8] = {0};
     cmd[0] = SDO_CLI_DL_INITIATE_EXP(len);
@@ -140,129 +140,129 @@ int hexfellow_sdo_download(hexfellow_sdo_t *sdo, uint8_t node, uint16_t idx,
     cmd[2] = (uint8_t)((idx >> 8) & 0xFF);
     cmd[3] = sub;
     memcpy(&cmd[4], data, len);
-    if (send_request(sdo->fd, node, cmd) != 0) return HEXFELLOW_SDO_ERR_IO;
+    if (send_request(sdo->fd, node, cmd) != 0) return HEXMEOW_SDO_ERR_IO;
     uint8_t resp[8];
     int rc = wait_response(sdo->fd, node, idx, sub, resp);
-    if (rc != HEXFELLOW_SDO_OK) return rc;
+    if (rc != HEXMEOW_SDO_OK) return rc;
     if ((resp[0] & 0xE0) == SDO_ABORT) {
         if (abort_code) {
             *abort_code = (uint32_t)resp[4] | ((uint32_t)resp[5] << 8) |
                           ((uint32_t)resp[6] << 16) | ((uint32_t)resp[7] << 24);
         }
-        return HEXFELLOW_SDO_ERR_ABORT;
+        return HEXMEOW_SDO_ERR_ABORT;
     }
-    if (resp[0] != SDO_SRV_DL_RESPONSE) return HEXFELLOW_SDO_ERR_PROTOCOL;
-    return HEXFELLOW_SDO_OK;
+    if (resp[0] != SDO_SRV_DL_RESPONSE) return HEXMEOW_SDO_ERR_PROTOCOL;
+    return HEXMEOW_SDO_OK;
 }
 
-int hexfellow_sdo_upload(hexfellow_sdo_t *sdo, uint8_t node, uint16_t idx,
+int hexmeow_sdo_upload(hexmeow_sdo_t *sdo, uint8_t node, uint16_t idx,
                          uint8_t sub, void *out, uint8_t *out_len,
                          int timeout_ms, uint32_t *abort_code) {
-    if (!sdo || sdo->fd < 0 || !out || !out_len) return HEXFELLOW_SDO_ERR_ARG;
-    if (set_rcvto_ms(sdo->fd, timeout_ms) < 0) return HEXFELLOW_SDO_ERR_IO;
+    if (!sdo || sdo->fd < 0 || !out || !out_len) return HEXMEOW_SDO_ERR_ARG;
+    if (set_rcvto_ms(sdo->fd, timeout_ms) < 0) return HEXMEOW_SDO_ERR_IO;
     drain(sdo->fd);
     uint8_t cmd[8] = {0};
     cmd[0] = SDO_CLI_UL_INITIATE;
     cmd[1] = (uint8_t)(idx & 0xFF);
     cmd[2] = (uint8_t)((idx >> 8) & 0xFF);
     cmd[3] = sub;
-    if (send_request(sdo->fd, node, cmd) != 0) return HEXFELLOW_SDO_ERR_IO;
+    if (send_request(sdo->fd, node, cmd) != 0) return HEXMEOW_SDO_ERR_IO;
     uint8_t resp[8];
     int rc = wait_response(sdo->fd, node, idx, sub, resp);
-    if (rc != HEXFELLOW_SDO_OK) return rc;
+    if (rc != HEXMEOW_SDO_OK) return rc;
     if ((resp[0] & 0xE0) == SDO_ABORT) {
         if (abort_code) {
             *abort_code = (uint32_t)resp[4] | ((uint32_t)resp[5] << 8) |
                           ((uint32_t)resp[6] << 16) | ((uint32_t)resp[7] << 24);
         }
-        return HEXFELLOW_SDO_ERR_ABORT;
+        return HEXMEOW_SDO_ERR_ABORT;
     }
     /* Expedited upload response: bits 7-5 = 010 (SCS=2), bit 1 = e=1. */
     if ((resp[0] & 0xE0) != SDO_SRV_UL_RESPONSE_EXP) {
-        return HEXFELLOW_SDO_ERR_PROTOCOL;
+        return HEXMEOW_SDO_ERR_PROTOCOL;
     }
     if ((resp[0] & 0x02) == 0) {
         /* Non-expedited (segmented) -- we don't support this for the demo. */
-        return HEXFELLOW_SDO_ERR_PROTOCOL;
+        return HEXMEOW_SDO_ERR_PROTOCOL;
     }
     uint8_t n_unused = (resp[0] >> 2) & 0x3;
     uint8_t data_len = ((resp[0] & 0x01) ? (4 - n_unused) : 4);
-    if (data_len > 4) return HEXFELLOW_SDO_ERR_PROTOCOL;
+    if (data_len > 4) return HEXMEOW_SDO_ERR_PROTOCOL;
     memcpy(out, &resp[4], data_len);
     *out_len = data_len;
-    return HEXFELLOW_SDO_OK;
+    return HEXMEOW_SDO_OK;
 }
 
 /* ---- typed helpers ---- */
 
-int hexfellow_sdo_dl_u8(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint8_t v) {
-    return hexfellow_sdo_download(s, n, i, sub, &v, 1, HEXFELLOW_SDO_TIMEOUT_MS, NULL);
+int hexmeow_sdo_dl_u8(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint8_t v) {
+    return hexmeow_sdo_download(s, n, i, sub, &v, 1, HEXMEOW_SDO_TIMEOUT_MS, NULL);
 }
-int hexfellow_sdo_dl_u16(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint16_t v) {
+int hexmeow_sdo_dl_u16(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint16_t v) {
     uint8_t buf[2] = {(uint8_t)(v & 0xFF), (uint8_t)((v >> 8) & 0xFF)};
-    return hexfellow_sdo_download(s, n, i, sub, buf, 2, HEXFELLOW_SDO_TIMEOUT_MS, NULL);
+    return hexmeow_sdo_download(s, n, i, sub, buf, 2, HEXMEOW_SDO_TIMEOUT_MS, NULL);
 }
-int hexfellow_sdo_dl_u32(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint32_t v) {
+int hexmeow_sdo_dl_u32(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint32_t v) {
     uint8_t buf[4] = {
         (uint8_t)(v & 0xFF), (uint8_t)((v >> 8) & 0xFF),
         (uint8_t)((v >> 16) & 0xFF), (uint8_t)((v >> 24) & 0xFF),
     };
-    return hexfellow_sdo_download(s, n, i, sub, buf, 4, HEXFELLOW_SDO_TIMEOUT_MS, NULL);
+    return hexmeow_sdo_download(s, n, i, sub, buf, 4, HEXMEOW_SDO_TIMEOUT_MS, NULL);
 }
-int hexfellow_sdo_dl_i8(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, int8_t v) {
+int hexmeow_sdo_dl_i8(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, int8_t v) {
     uint8_t b = (uint8_t)v;
-    return hexfellow_sdo_download(s, n, i, sub, &b, 1, HEXFELLOW_SDO_TIMEOUT_MS, NULL);
+    return hexmeow_sdo_download(s, n, i, sub, &b, 1, HEXMEOW_SDO_TIMEOUT_MS, NULL);
 }
-int hexfellow_sdo_dl_f32(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, float v) {
+int hexmeow_sdo_dl_f32(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, float v) {
     uint32_t bits;
     memcpy(&bits, &v, 4);
-    return hexfellow_sdo_dl_u32(s, n, i, sub, bits);
+    return hexmeow_sdo_dl_u32(s, n, i, sub, bits);
 }
 
-int hexfellow_sdo_ul_u8(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint8_t *v) {
+int hexmeow_sdo_ul_u8(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint8_t *v) {
     uint8_t buf[4] = {0};
     uint8_t got = 0;
-    int rc = hexfellow_sdo_upload(s, n, i, sub, buf, &got, HEXFELLOW_SDO_TIMEOUT_MS, NULL);
+    int rc = hexmeow_sdo_upload(s, n, i, sub, buf, &got, HEXMEOW_SDO_TIMEOUT_MS, NULL);
     if (rc) return rc;
-    if (got < 1) return HEXFELLOW_SDO_ERR_PROTOCOL;
+    if (got < 1) return HEXMEOW_SDO_ERR_PROTOCOL;
     *v = buf[0];
     return 0;
 }
-int hexfellow_sdo_ul_u16(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint16_t *v) {
+int hexmeow_sdo_ul_u16(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint16_t *v) {
     uint8_t buf[4] = {0};
     uint8_t got = 0;
-    int rc = hexfellow_sdo_upload(s, n, i, sub, buf, &got, HEXFELLOW_SDO_TIMEOUT_MS, NULL);
+    int rc = hexmeow_sdo_upload(s, n, i, sub, buf, &got, HEXMEOW_SDO_TIMEOUT_MS, NULL);
     if (rc) return rc;
-    if (got < 2) return HEXFELLOW_SDO_ERR_PROTOCOL;
+    if (got < 2) return HEXMEOW_SDO_ERR_PROTOCOL;
     *v = (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
     return 0;
 }
-int hexfellow_sdo_ul_u32(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint32_t *v) {
+int hexmeow_sdo_ul_u32(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, uint32_t *v) {
     uint8_t buf[4] = {0};
     uint8_t got = 0;
-    int rc = hexfellow_sdo_upload(s, n, i, sub, buf, &got, HEXFELLOW_SDO_TIMEOUT_MS, NULL);
+    int rc = hexmeow_sdo_upload(s, n, i, sub, buf, &got, HEXMEOW_SDO_TIMEOUT_MS, NULL);
     if (rc) return rc;
-    if (got < 4) return HEXFELLOW_SDO_ERR_PROTOCOL;
+    if (got < 4) return HEXMEOW_SDO_ERR_PROTOCOL;
     *v = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) |
          ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 24);
     return 0;
 }
-int hexfellow_sdo_ul_f32(hexfellow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, float *v) {
+int hexmeow_sdo_ul_f32(hexmeow_sdo_t *s, uint8_t n, uint16_t i, uint8_t sub, float *v) {
     uint32_t bits = 0;
-    int rc = hexfellow_sdo_ul_u32(s, n, i, sub, &bits);
+    int rc = hexmeow_sdo_ul_u32(s, n, i, sub, &bits);
     if (rc) return rc;
     memcpy(v, &bits, 4);
     return 0;
 }
 
-const char *hexfellow_sdo_strerr(int rc) {
+const char *hexmeow_sdo_strerr(int rc) {
     switch (rc) {
-        case HEXFELLOW_SDO_OK:           return "OK";
-        case HEXFELLOW_SDO_ERR_IO:       return "IO error";
-        case HEXFELLOW_SDO_ERR_TIMEOUT:  return "timeout";
-        case HEXFELLOW_SDO_ERR_ABORT:    return "server abort";
-        case HEXFELLOW_SDO_ERR_PROTOCOL: return "protocol error";
-        case HEXFELLOW_SDO_ERR_ARG:      return "invalid argument";
+        case HEXMEOW_SDO_OK:           return "OK";
+        case HEXMEOW_SDO_ERR_IO:       return "IO error";
+        case HEXMEOW_SDO_ERR_TIMEOUT:  return "timeout";
+        case HEXMEOW_SDO_ERR_ABORT:    return "server abort";
+        case HEXMEOW_SDO_ERR_PROTOCOL: return "protocol error";
+        case HEXMEOW_SDO_ERR_ARG:      return "invalid argument";
         default:                         return "unknown";
     }
 }

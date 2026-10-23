@@ -1,8 +1,19 @@
-# hexfellow CANopen Motor Control Demo
+# hexmeow CANopen Motor Control Demo
 
-Minimal C demos that initialize and drive **hexfellow** motors over
-CAN-FD using the CANopen (CiA301 + CiA402) protocol with vendor
-extensions for 64-byte PDOs.
+Minimal C demos that initialize and drive CAN-FD motors over CANopen
+(CiA301) with vendor extensions for oversized PDOs.
+
+Two motor families are covered, and they do **not** share a protocol:
+
+- **hexmeow** motors speak CiA402 (`6060h` modes, `6040h` state
+  machine) with a compressed 8-byte MIT record. `demo_mit`,
+  `demo_velocity` and `demo_regen` drive these.
+- **Meow Motor** (hexmeow 4310 / 4342) has its own object dictionary
+  (`0x41xx` / `0x45xx`) and a single flat mode byte at `0x4401` instead
+  of the CiA402 state machine. `demo_meow_mit` drives these.
+
+Only the transport layers (`hexmeow_canfd.*`, `hexmeow_sdo.*`) are
+shared between the two.
 
 - `demo_mit` — spins every motor at a constant velocity using **MIT
   mode** (`6060h = 5`).
@@ -14,6 +25,10 @@ extensions for 64-byte PDOs.
   bench-testing regenerative-braking absorption hardware (back-EMF
   clamp boards): every braking ramp pushes all motors' regen energy
   back into the DC bus at the same time.
+- `demo_meow_mit` — drives a **single Meow Motor** by streaming the
+  **uncompressed** MIT record (`0x4102`) over RPDO1. The record is 18
+  bytes wide, so this is also the repo's end-to-end **CAN-FD data-path
+  test**: the frame simply cannot be built on classic CAN.
 
 This repo is intentionally a **demo**, not a library. It contains the
 bare minimum to bring the motors from cold-boot all the way to a
@@ -53,7 +68,7 @@ The well-known [CANopenNode](https://github.com/CANopenNode/CANopenNode)
 stack would have been the natural choice for the SDO traffic during
 initialization. We deliberately do **not** use it, for two reasons:
 
-1. **No 64-byte CAN-FD PDO support.** The hexfellow firmware uses
+1. **No 64-byte CAN-FD PDO support.** The hexmeow firmware uses
    vendor-extended 64-byte FD PDOs to pack one-to-many control data
    for up to 8 motors into a single frame. CANopenNode v1.3 (the most
    recent stable line at the time of writing) does not natively handle
@@ -65,7 +80,7 @@ initialization. We deliberately do **not** use it, for two reasons:
    dictionary tooling, and obscure the actual on-wire behavior we're
    trying to teach.
 
-Instead, [`src/hexfellow_sdo.c`](src/hexfellow_sdo.c) implements a
+Instead, [`src/hexmeow_sdo.c`](src/hexmeow_sdo.c) implements a
 minimal expedited SDO master in ~200 lines of C — enough for every
 object the initialization sequence touches (all transfers are ≤ 4
 bytes). The control-loop path then talks straight to a SocketCAN-FD
@@ -80,9 +95,12 @@ demo is not that.
 
 ## Hard-coded presets
 
-The demos make a number of fixed assumptions to keep the code small
-and readable. If your setup deviates, edit
-[`src/hexfellow_common.h`](src/hexfellow_common.h).
+The **hexmeow** demos make a number of fixed assumptions to keep the
+code small and readable. If your setup deviates, edit
+[`src/hexmeow_common.h`](src/hexmeow_common.h). The Meow Motor
+demo has its own, much shorter, set — see
+[its section below](#meow-motor-demo-demo_meow_mit) and
+[`src/meow_common.h`](src/meow_common.h).
 
 | Item | Value |
 | --- | --- |
@@ -98,7 +116,7 @@ and readable. If your setup deviates, edit
 | TPDO2 (`status / drv-T / mtr-T / ctrl / err`, 12 B) | event timer 20 ms, inhibit 19 ms |
 | RPDO1 transmission type | 255 (event-driven) |
 | Short-circuit braking on disable (`2040h`) | enabled |
-| RPDO send cadence | **2 ms** (`HEXFELLOW_RPDO_PERIOD_MS`) |
+| RPDO send cadence | **2 ms** (`HEXMEOW_RPDO_PERIOD_MS`) |
 | Heartbeat warm-up window | **100 ms** (zero-target RPDO before rotation command) |
 
 ---
@@ -116,7 +134,7 @@ must respect:
    and then miss the next heartbeat deadline, tripping motor fault
    `0x8130` "Heartbeat error".
 2. **Heartbeat-first ordering inside the control thread.**
-   `hexfellow_ctrl_start` spawns a single thread that runs a tight
+   `hexmeow_ctrl_start` spawns a single thread that runs a tight
    `HB-if-due → RPDO → drain → sleep` loop. The first iteration's
    "HB due" check fires immediately (`last_hb_ms = 0`), so the very
    first frame the thread emits is a heartbeat on cob `0x710` — before
@@ -167,6 +185,114 @@ demo exits immediately  →  ~250 ms later motors stop  →  bus is idle
 
 ---
 
+## Meow Motor demo (`demo_meow_mit`)
+
+`demo_meow_mit` drives **one** Meow Motor on its own default RPDO1
+COB-ID (`0x200 + node_id`). There is no one-to-many frame to slice up,
+which keeps the mapping readable on a bus trace.
+
+### Why it doubles as a CAN-FD test
+
+The uncompressed MIT record `0x4102` is 18 bytes wide:
+
+| offset | bytes | sub | field | type / unit |
+| --- | --- | --- | --- | --- |
+| 0 | 4 | `:01` | `Pdes` | REAL32, Rev |
+| 4 | 4 | `:02` | `Vdes` | REAL32, Rev/s |
+| 8 | 4 | `:03` | `Tff` | REAL32, Nm |
+| 12 | 2 | `:04` | `Kp` | UNSIGNED16, dimensionless |
+| 14 | 2 | `:05` | `Kd` | UNSIGNED16, dimensionless |
+| 16 | 2 | `:06` | `limit` | UNSIGNED16, permille of peak torque |
+| 18 | 2 | — | filler `0x3000:02` | pads 18 → 20, an exact FD DLC |
+
+18 bytes do not fit in classic CAN, and there is no compression step to
+fall back on — that is the whole point of using the *uncompressed*
+record here. If the adapter, the bit timing or the motor cannot do
+CAN-FD, the demo fails loudly instead of quietly degrading. The
+compressed record (`0x4103`) exists precisely to fit in 8 bytes and is
+what `demo_mit` uses on hexmeow motors.
+
+The mapping is padded to exactly 20 bytes because an RPDO **shorter**
+than its mapped length is discarded by the receiver; matching exactly
+avoids depending on the motor tolerating trailing bytes.
+
+Per-second telemetry reports how many received PDOs actually arrived as
+FD frames, so both directions are covered:
+
+```text
+[demo_meow_mit] pos=  +2.3711 rev  torque=  +43 permille (+0.129 Nm)  mode=0x04 (MIT)  err=0x0000  drv=34.2C mtr=29.8C
+[demo_meow_mit]   CAN-FD  tx 500 RPDO/s (20 B)   rx 1000 FD/s + 0 classic/s   (tpdo1=4021 tpdo2=201 total)
+```
+
+Receiving some frames as classic CAN is not a failure on its own: with
+`0x2100:03` (BRS enable) set to `0`, the motor deliberately sends its
+≤ 8-byte TPDOs as classic frames to stay compatible with non-FD
+networks. The demo prints a hint pointing at that object.
+
+### Control law
+
+`0x4102` implements
+
+```text
+tau = Tff + clamp( Kp·factor·(Pdes − p) + Kd·factor·(Vdes − v),  ±limit )
+```
+
+- `limit` (`0x4102:06`) is in permille of peak torque and clamps **only**
+  the Kp/Kd term. `Tff` is added outside it.
+- `factor` is the read-only factory scale in `0x4102:07`. `Kp` and `Kd`
+  are dimensionless on the wire; the demo takes `kd` in Nm/(Rev/s) on
+  the command line and divides by this factor.
+- The demo leaves `Kp` and `Pdes` at zero, so the motor is a pure
+  velocity source with a torque ceiling: it accelerates toward `Vdes`
+  and never pulls harder than `limit`.
+
+The CLI `torque_permille` is written to **both** `0x4102:06` (the Kp/Kd
+clamp) and `0x4572` (the motor-side hard ceiling), so nothing the demo
+commands — clamped term or feed-forward — can exceed it.
+
+### A note on the vendor documentation
+
+The published protocol table marks every `0x4102` sub-index as *not*
+PDO-mappable. That is wrong: mapping `:02/:03/:05/:06` into RPDO1 is
+accepted and the streamed values are applied, verified on hexmeow 4310
+firmware. This demo additionally maps `:01` and `:04`, which are not
+covered by that verification. If a firmware build rejects them, the
+mapping write aborts with a message pointing at `--slim`, which falls
+back to streaming only the four proven fields (a 12-byte frame) and
+pins `Pdes`/`Kp` to zero over SDO at mode entry.
+
+### Presets
+
+| Item | Value | Where |
+| --- | --- | --- |
+| Vendor ID (`0x1018:01`) | `0x00686578`, hard-checked | `meow_common.h` |
+| Product code (`0x1018:02`) | `0x6C64BC78` (4310), `0x6C64BCAA` (4342); anything else is a warning, not an error | `meow_common.h` |
+| Host node ID | `0x10` (heartbeat on `0x710`) | `meow_common.h` |
+| RPDO1 COB-ID | `0x200 + node_id`, transmission type 255 | `meow_motor_init.c` |
+| TPDO1 (`pos Q8.24 / ts u16 / torque i16`, 8 B) | event timer 1 ms, inhibit 0.5 ms | `meow_common.h` |
+| TPDO2 (`mode / err / drv-T / mtr-T`, 7 B) | event timer 20 ms, inhibit 19 ms | `meow_common.h` |
+| Consumer heartbeat (`0x1016:01`) | 250 ms, pointed at node `0x10` | `meow_common.h` |
+| RPDO send cadence | 2 ms | `meow_common.h` |
+
+Position (`0x4564`) is a signed **Q8.24** fixed-point revolution count,
+already multi-turn across ±128 Rev — unlike the hexmeow motors there
+is no single-turn wrap to accumulate. The timestamp (`0x4713`) is 16
+bits of microseconds and wraps every ~65 ms.
+
+### Bring-up order
+
+Same heartbeat contract as the hexmeow demos: **no** host heartbeat
+is emitted during SDO initialization, because the motor's consumer
+heartbeat watchdog only arms once it has seen the first heartbeat, and
+arming it before a long SDO sequence would trip fault `0xA4` mid-init.
+The sequence is NMT pre-operational → identity → clear any latched
+fault (`0x4401 = 0xFF`) → disable (`0x4401 = 0`) → read `0x4576` and
+`0x4102:07` → TPDO1/TPDO2/RPDO1 mapping → `0x4572` ceiling →
+`0x1016:01` → zero all six MIT fields → `0x4401 = 4` (MIT) → NMT
+operational. Only then does the control thread start.
+
+---
+
 ## Prerequisites: bring the CAN bus up
 
 The demos do **not** configure SocketCAN themselves — they assume the
@@ -177,13 +303,26 @@ configuration is:
 # Arbitration: 1 Mbps @ sample-point 0.8
 # Data:        5 Mbps @ sample-point 0.75
 sudo ip link set can0 type can bitrate 1000000 sample-point 0.8 \
-        dbitrate 5000000 sample-point 0.75 sjw 5 dsjw 3 fd on
+        dbitrate 5000000 dsample-point 0.75 sjw 5 dsjw 3 fd on
 sudo ip link set up can0
 ```
+
+Note the second flag is `dsample-point`, not `sample-point` — passing
+`sample-point` twice silently overwrites the arbitration value and
+leaves the data phase to the kernel's default.
+
+At data rates of 1, 2 and 4 Mbps the Meow Motor expects a data sample
+point of **0.8** instead of 0.75.
 
 If your USB-CAN adapter does not support those exact sample points,
 use a hardware CAN-FD-capable SoC (e.g. RK3576) instead. Long frames
 will fail silently if the timing is wrong.
+
+`ip link set up` failing with `RTNETLINK answers: Broken pipe` is the
+adapter's firmware rejecting the computed bit timing (an EPIPE from a
+stalled USB control transfer), not a bus problem — check what the
+adapter advertises as its `dtseg1` / `dtseg2` / `dsjw` limits with
+`ip -details link show can0`.
 
 If anything is misconfigured, the demos will fail to open the socket
 with a descriptive error and exit.
@@ -239,14 +378,16 @@ make clean
 
 ## Run
 
-Both demos accept the same first two positional arguments and a few
-optional knobs. A `--verbose` (or `-v`) flag can appear anywhere on
-the command line.
+The three hexmeow demos take the same first two positional arguments
+plus a few optional knobs; `demo_meow_mit` addresses a single motor by
+node ID instead of taking a count. A `--verbose` (or `-v`) flag can
+appear anywhere on the command line.
 
 ```text
 demo_mit       [--verbose|-v] <iface> <motor_count> [target_rev_per_s=0.5] [kd=2.0] [torque_permille=800]
 demo_velocity  [--verbose|-v] <iface> <motor_count> [target_rev_per_s=0.5] [torque_permille=200]
 demo_regen     [--verbose|-v] <iface> <motor_count> [peak_rev_s=1.0] [accel_rev_s2=2.0] [decel_rev_s2=accel] [cruise_s=1.0] [torque_permille=800] [kd=2.0]
+demo_meow_mit  [--verbose|-v] [--slim] [--tff <Nm>] <iface> [node_id=1] [vdes_rev_per_s=0.5] [kd_nm_per_rev_per_s=0.2] [torque_permille=100]
 ```
 
 Examples — assuming 4 motors with CANopen IDs `0x01..0x04` on `can0`:
@@ -268,6 +409,38 @@ Examples — assuming 4 motors with CANopen IDs `0x01..0x04` on `can0`:
 # 50 rev/s^2 (effectively a full-torque stop), 2 s cruise segments
 ./build/demo_regen can0 4 3.0 3.0 50.0 2.0 1000
 ```
+
+Meow Motor examples — a single motor at node `0x01` on `can0`:
+
+```bash
+# Uncompressed MIT over a 20-byte CAN-FD RPDO: 0.5 rev/s, torque capped
+# at 10% of peak. This is the quickest end-to-end "is CAN-FD working?"
+# check on a new adapter or a new bit-timing setting.
+./build/demo_meow_mit can0 1 0.5
+
+# Same, but print the exact RPDO payload bytes and per-drain counters so
+# they can be compared against a candump trace
+./build/demo_meow_mit --verbose can0 1 0.5
+
+# Stream only the four field-verified sub-indexes (12-byte frame). Use
+# this if the firmware rejects 0x4102:01 or :04 in a PDO mapping.
+./build/demo_meow_mit --slim can0 1 0.5
+
+# Add 0.05 Nm of feed-forward torque, which bypasses the Kp/Kd clamp
+./build/demo_meow_mit --tff 0.05 can0 1 0.5 0.2 150
+```
+
+`demo_meow_mit` knobs:
+
+- `node_id` — the motor's CANopen ID; RPDO1 is `0x200 + node_id`.
+- `vdes_rev_per_s` — MIT velocity target (`0x4102:02`).
+- `kd_nm_per_rev_per_s` — velocity gain in physical units; divided by
+  the factory scale factor (`0x4102:07`) to get the raw `0x4102:05`.
+- `torque_permille` — written to both the Kp/Kd clamp (`0x4102:06`) and
+  the motor-side ceiling (`0x4572`).
+- `--tff <Nm>` — constant feed-forward torque (`0x4102:03`), added
+  *outside* the clamp but still under the `0x4572` ceiling.
+- `--slim` — 12-byte layout, see the Meow Motor section above.
 
 `demo_regen` knobs:
 
@@ -311,8 +484,8 @@ on a single event type.
 You should see initialization logs for each motor:
 
 ```text
-[hexfellow] initializing motor #0 (CANopen id 1)
-[hexfellow] motor #0 id=1 OK (fw=8 serial=0x12345678 peak=15000 mNm)
+[hexmeow] initializing motor #0 (CANopen id 1)
+[hexmeow] motor #0 id=1 OK (fw=8 serial=0x12345678 peak=15000 mNm)
 ...
 [demo_mit] heartbeat warm-up (100 ms) before applying targets
 ```
@@ -338,10 +511,10 @@ classic 8 B socket                              CAN-FD socket
                                           RPDO 0x190 64 B FD,
                                           TPDO1/TPDO2 RX 12 B FD)
    │                                                 │
-hexfellow_sdo.c                              hexfellow_canfd.c
+hexmeow_sdo.c                              hexmeow_canfd.c
    │                                                 │
    ▼                                                 ▼
-hexfellow_motor_init.c       ────────►       hexfellow_motor_ctrl.c
+hexmeow_motor_init.c       ────────►       hexmeow_motor_ctrl.c
 (per-motor SDO config:                      (single 2 ms control thread:
  UID/version/peak-torque,                    HB-if-due (50 ms cadence),
  PDO mapping & one-to-many                   pack RPDO from latest targets,
@@ -370,7 +543,7 @@ state, power-cycle the motors.
 
 ## Author
 
-Written by **kisonhe** &lt;[kisonhe@hexfellow.com](mailto:kisonhe@hexfellow.com)&gt;.
+Written by **kisonhe** &lt;[kisonhe@hexmeow.com](mailto:kisonhe@hexmeow.com)&gt;.
 
 ## License & disclaimer
 

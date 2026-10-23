@@ -1,5 +1,5 @@
 /*
- * demo_mit -- spin every connected hexfellow motor at a constant velocity
+ * demo_mit -- spin every connected hexmeow motor at a constant velocity
  * using MIT mode (mode 5).
  *
  * Usage:
@@ -43,27 +43,27 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "hexfellow_canfd.h"
-#include "hexfellow_common.h"
-#include "hexfellow_mit_target.h"
-#include "hexfellow_motor_ctrl.h"
-#include "hexfellow_motor_init.h"
-#include "hexfellow_sdo.h"
+#include "hexmeow_canfd.h"
+#include "hexmeow_common.h"
+#include "hexmeow_mit_target.h"
+#include "hexmeow_motor_ctrl.h"
+#include "hexmeow_motor_init.h"
+#include "hexmeow_sdo.h"
 
 /* Time the control thread spends emitting heartbeats with a zero target
  * before the rotation command is applied. 100 ms = at least the first
  * heartbeat plus a buffer; well under the motor's 250 ms timeout. */
 #define HB_WARMUP_MS  100
 
-static hexfellow_ctrl_t       g_ctrl;
-static hexfellow_motor_set_t  g_set;
-static hexfellow_sdo_t        g_sdo;
+static hexmeow_ctrl_t       g_ctrl;
+static hexmeow_motor_set_t  g_set;
+static hexmeow_sdo_t        g_sdo;
 static int                    g_canfd_fd = -1;
 
 static void usage(const char *argv0) {
     fprintf(stderr,
-        "demo_mit -- hexfellow CANopen MIT-mode motor demo\n"
-        "Author: kisonhe <kisonhe@hexfellow.com>\n"
+        "demo_mit -- hexmeow CANopen MIT-mode motor demo\n"
+        "Author: kisonhe <kisonhe@hexmeow.com>\n"
         "License: MIT (see LICENSE)\n"
         "\n"
         "Usage: %s [--verbose|-v] <iface> <motor_count> "
@@ -72,12 +72,12 @@ static void usage(const char *argv0) {
 }
 
 /* Strip "--verbose" / "-v" from argv (any position), setting the global
- * `hexfellow_verbose` to 1 if present. Returns the new argc. */
+ * `hexmeow_verbose` to 1 if present. Returns the new argc. */
 static int strip_verbose_flag(int argc, char *argv[]) {
     int out = 0;
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
-            hexfellow_verbose = 1;
+            hexmeow_verbose = 1;
         } else {
             argv[out++] = argv[i];
         }
@@ -110,14 +110,14 @@ int main(int argc, char *argv[]) {
     }
     const char *ifname = argv[1];
     int count = atoi(argv[2]);
-    if (count <= 0 || count > HEXFELLOW_MAX_MOTORS) {
+    if (count <= 0 || count > HEXMEOW_MAX_MOTORS) {
         fprintf(stderr, "ERROR: motor_count must be 1..%d (got %d)\n",
-                HEXFELLOW_MAX_MOTORS, count);
+                HEXMEOW_MAX_MOTORS, count);
         return 2;
     }
     float target_rev_s = (argc >= 4) ? (float)atof(argv[3]) : 0.5f;
     float kd           = (argc >= 5) ? (float)atof(argv[4]) : 2.0f;
-    int   torque_pm    = (argc >= 6) ? atoi(argv[5]) : (int)HEXFELLOW_DEFAULT_TORQUE_PERMILLE;
+    int   torque_pm    = (argc >= 6) ? atoi(argv[5]) : (int)HEXMEOW_DEFAULT_TORQUE_PERMILLE;
     if (torque_pm < 0 || torque_pm > 1000) {
         fprintf(stderr, "ERROR: torque_permille must be 0..1000 (got %d)\n",
                 torque_pm);
@@ -132,20 +132,20 @@ int main(int argc, char *argv[]) {
             "[demo_mit] iface=%s count=%d target=%.3f Rev/s kd=%.3f torque=%d permille\n",
             ifname, count, target_rev_s, kd, torque_pm);
 
-    g_canfd_fd = hexfellow_canfd_open(ifname);
-    hexfellow_sdo_open(&g_sdo, ifname);
+    g_canfd_fd = hexmeow_canfd_open(ifname);
+    hexmeow_sdo_open(&g_sdo, ifname);
 
     memset(&g_set, 0, sizeof(g_set));
-    g_set.mode = HEXFELLOW_MODE_KIND_MIT;
+    g_set.mode = HEXMEOW_MODE_KIND_MIT;
     g_set.count = (uint8_t)count;
     g_set.torque_permille = (uint16_t)torque_pm;
     /* Slightly conservative MIT KP/KD output torque limit (~77%). */
     g_set.kp_kd_torque_permille = 770;
-    g_set.mapping = hexfellow_mit_mapping_default();
+    g_set.mapping = hexmeow_mit_mapping_default();
 
     /* Full SDO init: UID/version checks, PDO remap, CiA402 enable, NMT
      * operational. No heartbeats are emitted while this runs. */
-    hexfellow_motor_set_init(&g_set, &g_sdo, g_canfd_fd);
+    hexmeow_motor_set_init(&g_set, &g_sdo, g_canfd_fd);
 
     for (uint8_t i = 0; i < g_set.count; i++) {
         fprintf(stderr,
@@ -157,11 +157,11 @@ int main(int argc, char *argv[]) {
     }
 
     /* Targets default to zero -- no motion until we update them below. */
-    hexfellow_ctrl_init(&g_ctrl, &g_set, g_canfd_fd);
+    hexmeow_ctrl_init(&g_ctrl, &g_set, g_canfd_fd);
 
     /* Start the control thread. Heartbeats start flowing immediately;
      * RPDOs carry a zero target until step 6 of the lifecycle. */
-    hexfellow_ctrl_start(&g_ctrl);
+    hexmeow_ctrl_start(&g_ctrl);
 
     /* Let a few heartbeats reach every motor before commanding rotation. */
     fprintf(stderr,
@@ -171,7 +171,7 @@ int main(int argc, char *argv[]) {
 
     /* Apply the actual MIT target. The next RPDO (within 1 ms) will carry
      * this. */
-    hexfellow_mit_target_t target = {
+    hexmeow_mit_target_t target = {
         .position = 0.0f,
         .velocity = target_rev_s,
         .torque   = 0.0f,
@@ -179,15 +179,15 @@ int main(int argc, char *argv[]) {
         .kd       = kd,
     };
     for (uint8_t i = 0; i < g_set.count; i++) {
-        hexfellow_ctrl_set_mit_target(&g_ctrl, i, &target);
+        hexmeow_ctrl_set_mit_target(&g_ctrl, i, &target);
     }
 
     /* Run forever printing telemetry. SIGINT -> _exit(0). */
     for (;;) {
         sleep(1);
         for (uint8_t i = 0; i < g_set.count; i++) {
-            hexfellow_motor_state_t s;
-            hexfellow_ctrl_snapshot(&g_ctrl, i, &s);
+            hexmeow_motor_state_t s;
+            hexmeow_ctrl_snapshot(&g_ctrl, i, &s);
             float peak = g_set.motors[i].peak_torque_mNm * 0.001f; /* Nm */
             float torque_nm = (float)s.raw_torque_permille * peak * 0.001f;
             float drv_c = (float)s.driver_temp_x10 * 0.1f;

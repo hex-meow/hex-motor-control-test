@@ -1,9 +1,9 @@
-#include "hexfellow_mit_target.h"
+#include "hexmeow_mit_target.h"
 
 #include <string.h>
 
-hexfellow_mit_mapping_t hexfellow_mit_mapping_default(void) {
-    hexfellow_mit_mapping_t m = {
+hexmeow_mit_mapping_t hexmeow_mit_mapping_default(void) {
+    hexmeow_mit_mapping_t m = {
         .position_min = -0.5f,  .position_max = 0.5f,
         .velocity_min = -10.0f, .velocity_max = 10.0f,
         .torque_min   = -10.0f, .torque_max   = 10.0f,
@@ -33,8 +33,8 @@ static inline void store_u32_le(uint8_t dst[4], uint32_t v) {
     dst[3] = (uint8_t)((v >> 24) & 0xFFu);
 }
 
-void hexfellow_mit_target_pack(const hexfellow_mit_target_t *t,
-                               const hexfellow_mit_mapping_t *m,
+void hexmeow_mit_target_pack(const hexmeow_mit_target_t *t,
+                               const hexmeow_mit_mapping_t *m,
                                uint8_t out[8]) {
     float position = clampf(t->position, m->position_min, m->position_max);
     float velocity = clampf(t->velocity, m->velocity_min, m->velocity_max);

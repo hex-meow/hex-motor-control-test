@@ -1,12 +1,12 @@
 /*
- * Hexfellow runtime control loop.
+ * Hexmeow runtime control loop.
  *
  * Drives one CAN-FD socket on a 1ms cadence:
  *   - sends master heartbeat (cob 0x710) every 50ms
  *   - sends shared RPDO (cob 0x190) every 1ms
  *   - drains incoming TPDO1 / TPDO2 frames and updates per-motor state
  *
- * Targets are written by the application via `hexfellow_ctrl_set_*` and the
+ * Targets are written by the application via `hexmeow_ctrl_set_*` and the
  * loop reads the latest values under a mutex.
  *
  * Lifecycle: this demo has no graceful shutdown path. The control thread
@@ -15,15 +15,15 @@
  * the heartbeat loss on its own and stop spinning -- there is no need to
  * disable the drive or send NMT pre-operational on shutdown.
  */
-#ifndef HEXFELLOW_MOTOR_CTRL_H
-#define HEXFELLOW_MOTOR_CTRL_H
+#ifndef HEXMEOW_MOTOR_CTRL_H
+#define HEXMEOW_MOTOR_CTRL_H
 
 #include <pthread.h>
 #include <stdint.h>
 
-#include "hexfellow_common.h"
-#include "hexfellow_mit_target.h"
-#include "hexfellow_motor_init.h"
+#include "hexmeow_common.h"
+#include "hexmeow_mit_target.h"
+#include "hexmeow_motor_init.h"
 
 typedef struct {
     /* Last-decoded TPDO1 fields. */
@@ -39,54 +39,54 @@ typedef struct {
     uint16_t control_word;        /* 0x6040 (echo) */
     uint64_t last_tpdo1_ms;
     uint64_t last_tpdo2_ms;
-} hexfellow_motor_state_t;
+} hexmeow_motor_state_t;
 
 typedef struct {
     int                       canfd_fd;
-    hexfellow_motor_set_t    *set;            /* not owned */
+    hexmeow_motor_set_t    *set;            /* not owned */
 
     /* Targets (protected by mutex). */
     pthread_mutex_t           lock;
-    hexfellow_mit_target_t    mit_targets[HEXFELLOW_MAX_MOTORS];
+    hexmeow_mit_target_t    mit_targets[HEXMEOW_MAX_MOTORS];
     /* For velocity mode: */
-    float                     vel_target_rev_s[HEXFELLOW_MAX_MOTORS];
-    uint16_t                  vel_torque_permille[HEXFELLOW_MAX_MOTORS];
+    float                     vel_target_rev_s[HEXMEOW_MAX_MOTORS];
+    uint16_t                  vel_torque_permille[HEXMEOW_MAX_MOTORS];
 
     /* Per-motor decoded state. */
-    hexfellow_motor_state_t   state[HEXFELLOW_MAX_MOTORS];
+    hexmeow_motor_state_t   state[HEXMEOW_MAX_MOTORS];
 
     /* Single thread carrying both the master heartbeat (every 50 ms) and
-     * the shared RPDO (every HEXFELLOW_RPDO_PERIOD_MS). Coupling them is
+     * the shared RPDO (every HEXMEOW_RPDO_PERIOD_MS). Coupling them is
      * intentional: if the RPDO send path ever wedges, the heartbeat
      * stops too, the motor's 250 ms watchdog trips, and the failure is
      * visible -- rather than the motor happily spinning on a stale
      * target. */
     pthread_t                 thread;
-} hexfellow_ctrl_t;
+} hexmeow_ctrl_t;
 
 /* Initialize control state. All targets default to zero -- no rotation will
  * be commanded until the application calls one of the `set_*` helpers. */
-void hexfellow_ctrl_init(hexfellow_ctrl_t *c, hexfellow_motor_set_t *set, int canfd_fd);
+void hexmeow_ctrl_init(hexmeow_ctrl_t *c, hexmeow_motor_set_t *set, int canfd_fd);
 
 /* Spawn the control thread.
  *
  * The thread runs a tight `HB-if-due → RPDO → drain → sleep` loop on a
- * `HEXFELLOW_RPDO_PERIOD_MS` (= 2 ms) cadence. Master heartbeats are
+ * `HEXMEOW_RPDO_PERIOD_MS` (= 2 ms) cadence. Master heartbeats are
  * emitted every 50 ms from inside that same loop. The thread runs for
  * the lifetime of the process; there is no `_stop` / `_join`. */
-void hexfellow_ctrl_start(hexfellow_ctrl_t *c);
+void hexmeow_ctrl_start(hexmeow_ctrl_t *c);
 
 /* Update target for a single motor in MIT mode. */
-void hexfellow_ctrl_set_mit_target(hexfellow_ctrl_t *c, uint8_t index,
-                                   const hexfellow_mit_target_t *t);
+void hexmeow_ctrl_set_mit_target(hexmeow_ctrl_t *c, uint8_t index,
+                                   const hexmeow_mit_target_t *t);
 
 /* Update target for a single motor in velocity mode. */
-void hexfellow_ctrl_set_velocity_target(hexfellow_ctrl_t *c, uint8_t index,
+void hexmeow_ctrl_set_velocity_target(hexmeow_ctrl_t *c, uint8_t index,
                                         float target_rev_s,
                                         uint16_t torque_permille);
 
 /* Snapshot the latest state (caller-allocated `out`). */
-void hexfellow_ctrl_snapshot(hexfellow_ctrl_t *c, uint8_t index,
-                             hexfellow_motor_state_t *out);
+void hexmeow_ctrl_snapshot(hexmeow_ctrl_t *c, uint8_t index,
+                             hexmeow_motor_state_t *out);
 
-#endif /* HEXFELLOW_MOTOR_CTRL_H */
+#endif /* HEXMEOW_MOTOR_CTRL_H */

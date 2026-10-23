@@ -1,4 +1,4 @@
-#include "hexfellow_canfd.h"
+#include "hexmeow_canfd.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -17,7 +17,7 @@ static const uint8_t kFdLengths[] = {
     0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64,
 };
 
-uint8_t hexfellow_canfd_pad_len(uint8_t len) {
+uint8_t hexmeow_canfd_pad_len(uint8_t len) {
     for (size_t i = 0; i < sizeof(kFdLengths); i++) {
         if (kFdLengths[i] >= len) {
             return kFdLengths[i];
@@ -26,10 +26,10 @@ uint8_t hexfellow_canfd_pad_len(uint8_t len) {
     return 64;
 }
 
-int hexfellow_canfd_open(const char *ifname) {
+int hexmeow_canfd_open(const char *ifname) {
     int fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (fd < 0) {
-        fprintf(stderr, "[hexfellow_canfd] socket(PF_CAN) failed: %s\n",
+        fprintf(stderr, "[hexmeow_canfd] socket(PF_CAN) failed: %s\n",
                 strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -38,7 +38,7 @@ int hexfellow_canfd_open(const char *ifname) {
     if (setsockopt(fd, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &enable_fd,
                    sizeof(enable_fd)) < 0) {
         fprintf(stderr,
-                "[hexfellow_canfd] setsockopt(CAN_RAW_FD_FRAMES) on '%s' "
+                "[hexmeow_canfd] setsockopt(CAN_RAW_FD_FRAMES) on '%s' "
                 "failed: %s. Make sure the interface is UP with `fd on`.\n",
                 ifname, strerror(errno));
         close(fd);
@@ -50,7 +50,7 @@ int hexfellow_canfd_open(const char *ifname) {
     strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
     if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
         fprintf(stderr,
-                "[hexfellow_canfd] ioctl(SIOCGIFINDEX) for '%s' failed: %s\n",
+                "[hexmeow_canfd] ioctl(SIOCGIFINDEX) for '%s' failed: %s\n",
                 ifname, strerror(errno));
         close(fd);
         exit(EXIT_FAILURE);
@@ -61,7 +61,7 @@ int hexfellow_canfd_open(const char *ifname) {
     addr.can_family = AF_CAN;
     addr.can_ifindex = ifr.ifr_ifindex;
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        fprintf(stderr, "[hexfellow_canfd] bind '%s' failed: %s\n", ifname,
+        fprintf(stderr, "[hexmeow_canfd] bind '%s' failed: %s\n", ifname,
                 strerror(errno));
         close(fd);
         exit(EXIT_FAILURE);
@@ -69,7 +69,7 @@ int hexfellow_canfd_open(const char *ifname) {
     return fd;
 }
 
-int hexfellow_canfd_send_classic(int fd, uint16_t cob_id, const void *data,
+int hexmeow_canfd_send_classic(int fd, uint16_t cob_id, const void *data,
                                  uint8_t len) {
     if (len > 8) {
         errno = EINVAL;
@@ -84,7 +84,7 @@ int hexfellow_canfd_send_classic(int fd, uint16_t cob_id, const void *data,
     return (n == (ssize_t)sizeof(f)) ? 0 : -1;
 }
 
-int hexfellow_canfd_send_fd(int fd, uint16_t cob_id, const void *data,
+int hexmeow_canfd_send_fd(int fd, uint16_t cob_id, const void *data,
                             uint8_t len) {
     if (len > 64) {
         errno = EINVAL;
@@ -93,7 +93,7 @@ int hexfellow_canfd_send_fd(int fd, uint16_t cob_id, const void *data,
     struct canfd_frame f;
     memset(&f, 0, sizeof(f));
     f.can_id = cob_id & CAN_SFF_MASK;
-    uint8_t plen = hexfellow_canfd_pad_len(len);
+    uint8_t plen = hexmeow_canfd_pad_len(len);
     f.len = plen;
     /* Always request the bit-rate switch on CAN-FD frames, matching the
      * production Rust code (`socketcan::id::FdFlags::BRS`). Some CAN-FD
@@ -106,7 +106,7 @@ int hexfellow_canfd_send_fd(int fd, uint16_t cob_id, const void *data,
     return (n == (ssize_t)sizeof(f)) ? 0 : -1;
 }
 
-int hexfellow_canfd_recv(int fd, struct canfd_frame *frame, int *is_fd) {
+int hexmeow_canfd_recv(int fd, struct canfd_frame *frame, int *is_fd) {
     /* Non-blocking receive. MSG_DONTWAIT makes recv() return immediately
      * with EAGAIN if no frame is available. This is critical for the
      * control thread's drain loop: motors send TPDO1 at 1 ms cadence, so

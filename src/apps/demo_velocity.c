@@ -1,5 +1,5 @@
 /*
- * demo_velocity -- spin every connected hexfellow motor at a constant
+ * demo_velocity -- spin every connected hexmeow motor at a constant
  * velocity using profile-velocity mode (mode 3) with a 6072h max-torque
  * limit.
  *
@@ -26,23 +26,23 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "hexfellow_canfd.h"
-#include "hexfellow_common.h"
-#include "hexfellow_motor_ctrl.h"
-#include "hexfellow_motor_init.h"
-#include "hexfellow_sdo.h"
+#include "hexmeow_canfd.h"
+#include "hexmeow_common.h"
+#include "hexmeow_motor_ctrl.h"
+#include "hexmeow_motor_init.h"
+#include "hexmeow_sdo.h"
 
 #define HB_WARMUP_MS  100
 
-static hexfellow_ctrl_t       g_ctrl;
-static hexfellow_motor_set_t  g_set;
-static hexfellow_sdo_t        g_sdo;
+static hexmeow_ctrl_t       g_ctrl;
+static hexmeow_motor_set_t  g_set;
+static hexmeow_sdo_t        g_sdo;
 static int                    g_canfd_fd = -1;
 
 static void usage(const char *argv0) {
     fprintf(stderr,
-        "demo_velocity -- hexfellow CANopen profile-velocity motor demo\n"
-        "Author: kisonhe <kisonhe@hexfellow.com>\n"
+        "demo_velocity -- hexmeow CANopen profile-velocity motor demo\n"
+        "Author: kisonhe <kisonhe@hexmeow.com>\n"
         "License: MIT (see LICENSE)\n"
         "\n"
         "Usage: %s [--verbose|-v] <iface> <motor_count> "
@@ -51,12 +51,12 @@ static void usage(const char *argv0) {
 }
 
 /* Strip "--verbose" / "-v" from argv (any position), setting the global
- * `hexfellow_verbose` to 1 if present. Returns the new argc. */
+ * `hexmeow_verbose` to 1 if present. Returns the new argc. */
 static int strip_verbose_flag(int argc, char *argv[]) {
     int out = 0;
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
-            hexfellow_verbose = 1;
+            hexmeow_verbose = 1;
         } else {
             argv[out++] = argv[i];
         }
@@ -86,9 +86,9 @@ int main(int argc, char *argv[]) {
     }
     const char *ifname = argv[1];
     int count = atoi(argv[2]);
-    if (count <= 0 || count > HEXFELLOW_MAX_MOTORS) {
+    if (count <= 0 || count > HEXMEOW_MAX_MOTORS) {
         fprintf(stderr, "ERROR: motor_count must be 1..%d (got %d)\n",
-                HEXFELLOW_MAX_MOTORS, count);
+                HEXMEOW_MAX_MOTORS, count);
         return 2;
     }
     float target_rev_s = (argc >= 4) ? (float)atof(argv[3]) : 0.5f;
@@ -105,17 +105,17 @@ int main(int argc, char *argv[]) {
             "[demo_velocity] iface=%s count=%d target=%.3f Rev/s torque=%d permille\n",
             ifname, count, target_rev_s, torque_pm);
 
-    g_canfd_fd = hexfellow_canfd_open(ifname);
-    hexfellow_sdo_open(&g_sdo, ifname);
+    g_canfd_fd = hexmeow_canfd_open(ifname);
+    hexmeow_sdo_open(&g_sdo, ifname);
 
     memset(&g_set, 0, sizeof(g_set));
-    g_set.mode = HEXFELLOW_MODE_KIND_VELOCITY;
+    g_set.mode = HEXMEOW_MODE_KIND_VELOCITY;
     g_set.count = (uint8_t)count;
     g_set.torque_permille = (uint16_t)torque_pm;
     g_set.kp_kd_torque_permille = 0;            /* unused */
-    g_set.mapping = hexfellow_mit_mapping_default(); /* unused */
+    g_set.mapping = hexmeow_mit_mapping_default(); /* unused */
 
-    hexfellow_motor_set_init(&g_set, &g_sdo, g_canfd_fd);
+    hexmeow_motor_set_init(&g_set, &g_sdo, g_canfd_fd);
 
     for (uint8_t i = 0; i < g_set.count; i++) {
         fprintf(stderr,
@@ -128,8 +128,8 @@ int main(int argc, char *argv[]) {
 
     /* Targets default to zero (no torque, no velocity) -- the motor will
      * not spin until we update them after the heartbeat warm-up. */
-    hexfellow_ctrl_init(&g_ctrl, &g_set, g_canfd_fd);
-    hexfellow_ctrl_start(&g_ctrl);
+    hexmeow_ctrl_init(&g_ctrl, &g_set, g_canfd_fd);
+    hexmeow_ctrl_start(&g_ctrl);
 
     fprintf(stderr,
             "[demo_velocity] heartbeat warm-up (%d ms) before applying targets\n",
@@ -137,15 +137,15 @@ int main(int argc, char *argv[]) {
     usleep(HB_WARMUP_MS * 1000);
 
     for (uint8_t i = 0; i < g_set.count; i++) {
-        hexfellow_ctrl_set_velocity_target(&g_ctrl, i, target_rev_s,
+        hexmeow_ctrl_set_velocity_target(&g_ctrl, i, target_rev_s,
                                            (uint16_t)torque_pm);
     }
 
     for (;;) {
         sleep(1);
         for (uint8_t i = 0; i < g_set.count; i++) {
-            hexfellow_motor_state_t s;
-            hexfellow_ctrl_snapshot(&g_ctrl, i, &s);
+            hexmeow_motor_state_t s;
+            hexmeow_ctrl_snapshot(&g_ctrl, i, &s);
             float peak = g_set.motors[i].peak_torque_mNm * 0.001f;
             float torque_nm = (float)s.raw_torque_permille * peak * 0.001f;
             float drv_c = (float)s.driver_temp_x10 * 0.1f;
